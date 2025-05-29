@@ -6,6 +6,17 @@ from .furniture_router import router as furniture_router
 models.Base.metadata.create_all(bind=database.engine)
 app = FastAPI()
 
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # o ["*"] para todos los orígenes (no recomendado en producción)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 def get_db():
     db = database.SessionLocal()
     try:
