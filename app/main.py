@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from . import models, schemas, crud, auth, database, email_utils
+from .furniture_router import router as furniture_router
 
 models.Base.metadata.create_all(bind=database.engine)
 app = FastAPI()
@@ -50,3 +51,5 @@ def reset_password(data: schemas.ResetPassword, db: Session = Depends(get_db)):
     if not crud.reset_password(db, data.email, data.code, data.new_password):
         raise HTTPException(status_code=400, detail="Código inválido o expirado")
     return {"msg": "Contraseña actualizada"}
+
+app.include_router(furniture_router)
