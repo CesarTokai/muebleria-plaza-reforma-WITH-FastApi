@@ -12,9 +12,13 @@ def get_db():
     finally:
         db.close()
 
-@router.post("/", response_model=schemas.FurnitureOut, status_code=status.HTTP_201_CREATED)
-def create_furniture(furniture: schemas.FurnitureCreate, db: Session = Depends(get_db)):
-    return crud_furniture.create_furniture(db, furniture)
+@router.post("/", response_model=List[schemas.FurnitureOut], status_code=status.HTTP_201_CREATED)
+def create_furniture(furniture_list: List[schemas.FurnitureCreate], db: Session = Depends(get_db)):
+    created_furniture = []
+    for furniture in furniture_list:
+        created = crud_furniture.create_furniture(db, furniture)
+        created_furniture.append(created)
+    return created_furniture
 
 @router.get("/", response_model=List[schemas.FurnitureOut])
 def list_furniture(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
