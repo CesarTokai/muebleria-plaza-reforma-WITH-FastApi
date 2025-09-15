@@ -1,32 +1,95 @@
-import os
 from email.message import EmailMessage
 import aiosmtplib
-from dotenv import load_dotenv
+from .config import settings
+import logging
 
-# Cargar variables de entorno desde .env
-load_dotenv()
+# Configurar logger
+logger = logging.getLogger(__name__)
 
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-SMTP_SERVER = os.getenv("SMTP_SERVER")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
+async def send_email(subject, to_email, content, html_content=None):
+    """
+    Envía un correo electrónico.
 
-async def send_email(subject, to_email, content):
+    Args:
+        subject (str): Asunto del correo
+        to_email (str): Dirección de correo del destinatario
+        content (str): Contenido del correo en texto plano
+        html_content (str, optional): Contenido del correo en HTML. Por defecto es None.
+
+    Returns:
+        bool: True si el correo se envió correctamente, False en caso contrario
+    """
+    # Validar configuración de email
+    email_validation = settings.validate_email_settings()
+    if email_validation:
+        logger.error(f"Error en configuración de email: {email_validation}")
+        return False
+
     message = EmailMessage()
-    message["From"] = SMTP_USER
+    message["From"] = settings.SMTP_USER
     message["To"] = to_email
     message["Subject"] = subject
     message.set_content(content)
 
+    # Añadir contenido HTML si está disponible
+    if html_content:
+        message.add_alternative(html_content, subtype="html")
+
     try:
         await aiosmtplib.send(
             message,
-            hostname=SMTP_SERVER,
-            port=SMTP_PORT,
-            username=SMTP_USER,
-            password=SMTP_PASS,
+            hostname=settings.SMTP_SERVER,
+            port=settings.SMTP_PORT,
+            username=settings.SMTP_USER,
+            password=settings.SMTP_PASS,
             use_tls=True
         )
-        print(f"Correo enviado a {to_email}")
+        logger.info(f"Correo enviado a {to_email}")
+        return True
     except Exception as e:
-        print(f"Error enviando correo: {e}")
+        logger.error(f"Error enviando correo a {to_email}: {str(e)}")
+        return False
+
+async def send_reset_code_email(to_email, code):
+    """
+    Envía un correo con código de recuperación de contraseña.
+
+    Args:
+        to_email (str): Dirección de correo del destinatario
+        code (str): Código de recuperación
+
+    Returns:
+        bool: True si el correo se envió correctamente, False en caso contrario
+    """
+    subject = f"Código de recuperación - {settings.APP_NAME}"
+    text_content = f"""
+    Hola,
+
+    Has solicitado un código para recuperar tu contraseña en {settings.APP_NAME}.
+
+    Tu código de recuperación es: {code}
+
+    Este código expirará en 15 minutos.
+
+    Si no has solicitado este código, puedes ignorar este correo.
+
+    Saludos,
+    El equipo de {settings.APP_NAME}
+    """
+
+    html_content = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2>Recuperación de Contraseña</h2>
+        <p>Hola,</p>
+        <p>Has solicitado un código para recuperar tu contraseña en <strong>{settings.APP_NAME}</strong>.</p>
+        <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; text-align: center; margin: 20px 0;">
+            <h3 style="margin: 0; color: #333;">Tu código de recuperación es:</h3>
+            <p style="font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 10px 0;">{code}</p>
+        </div>
+        <p>Este código expirará en <strong>15 minutos</strong>.</p>
+        <p>Si no has solicitado este código, puedes ignorar este correo.</p>
+        <p>Saludos,<br>El equipo de {settings.APP_NAME}</p>
+    </div>
+    """
+
+    return await send_email(subject, to_email, text_content, html_content)

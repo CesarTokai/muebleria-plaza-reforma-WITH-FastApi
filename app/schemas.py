@@ -1,10 +1,25 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from pydantic import BaseModel, EmailStr, validator, Field
+from typing import Optional, List
 from datetime import datetime
+
+
+ALLOWED_CATEGORIES = {
+    "sala","oficina","camas-y-colchones","comedor","cocinas",
+    "electrodomesticos-pequenos","bicicletas","refrigeradores",
+}
+
+
+
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+
+    @validator('password')
+    def password_min_length(cls, v):
+        if len(v) < 8:
+            raise ValueError('La contraseña debe tener al menos 8 caracteres')
+        return v
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -32,28 +47,125 @@ class ResetPassword(BaseModel):
     code: str
     new_password: str
 
+    @validator('new_password')
+    def password_min_length(cls, v):
+        if len(v) < 8:
+            raise ValueError('La contraseña debe tener al menos 8 caracteres')
+        return v
+
 class FurnitureBase(BaseModel):
     name: str
     description: Optional[str] = None
-    price: float
+    price: float = Field(..., gt=0)
     category: str
     img_base64: Optional[str] = None
-    stock: Optional[int] = 0
+    stock: Optional[int] = Field(0, ge=0)
     brand: Optional[str] = None
     color: Optional[str] = None
     material: Optional[str] = None
     dimensions: Optional[str] = None
 
+    @validator('name')
+    def name_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError('El nombre no puede estar vacío')
+        if len(v) > 255:
+            raise ValueError('El nombre no puede exceder 255 caracteres')
+        return v
+
+    @validator('category')
+    def category_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError('La categoría no puede estar vacía')
+        return v
+
 class FurnitureCreate(FurnitureBase):
     pass
 
-class FurnitureUpdate(FurnitureBase):
+class FurnitureUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = Field(None, gt=0)
+    category: Optional[str] = None
+    img_base64: Optional[str] = None
+    stock: Optional[int] = Field(None, ge=0)
+    brand: Optional[str] = None
+    color: Optional[str] = None
+    material: Optional[str] = None
+    dimensions: Optional[str] = None
+
+    @validator('name')
+    def name_not_empty(cls, v):
+        if v is not None:
+            if not v.strip():
+                raise ValueError('El nombre no puede estar vacío')
+            if len(v) > 255:
+                raise ValueError('El nombre no puede exceder 255 caracteres')
+        return v
+
+    @validator('category')
+    def category_not_empty(cls, v):
+        if v is not None and not v.strip():
+            raise ValueError('La categoría no puede estar vacía')
+        return v
+
+class PostBase(BaseModel):
+    title: str
+    content: str
+    furniture_id: int
+
+    @validator('title')
+    def title_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError('El título no puede estar vacío')
+        if len(v) > 255:
+            raise ValueError('El título no puede exceder 255 caracteres')
+        return v
+
+    @validator('content')
+    def content_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError('El contenido no puede estar vacío')
+        return v
+
+class PostCreate(PostBase):
     pass
+
+class PostUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @validator('title')
+    def title_not_empty(cls, v):
+        if v is not None:
+            if not v.strip():
+                raise ValueError('El título no puede estar vacío')
+            if len(v) > 255:
+                raise ValueError('El título no puede exceder 255 caracteres')
+        return v
+
+    @validator('content')
+    def content_not_empty(cls, v):
+        if v is not None and not v.strip():
+            raise ValueError('El contenido no puede estar vacío')
+        return v
+
+class PostOut(PostBase):
+    id: int
+    publication_date: datetime
+    created_at: datetime
+    updated_at: datetime
+    is_active: bool
+
+    class Config:
+        orm_mode = True
 
 class FurnitureOut(FurnitureBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    posts: List[PostOut] = Field(default_factory=list)
 
     class Config:
         orm_mode = True
