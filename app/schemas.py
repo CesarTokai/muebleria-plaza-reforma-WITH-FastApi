@@ -35,6 +35,27 @@ class UserOut(BaseModel):
     class Config:
         orm_mode = True
 
+# Category schemas
+class CategoryBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+    @validator('name')
+    def name_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError('El nombre de la categoría no puede estar vacío')
+        return v
+
+class CategoryCreate(CategoryBase):
+    pass
+
+class CategoryOut(CategoryBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
 class RequestReset(BaseModel):
     email: EmailStr
 
@@ -57,7 +78,7 @@ class FurnitureBase(BaseModel):
     name: str
     description: Optional[str] = None
     price: float = Field(..., gt=0)
-    category: str
+    category_id: int
     img_base64: Optional[str] = None
     stock: Optional[int] = Field(0, ge=0)
     brand: Optional[str] = None
@@ -73,10 +94,10 @@ class FurnitureBase(BaseModel):
             raise ValueError('El nombre no puede exceder 255 caracteres')
         return v
 
-    @validator('category')
-    def category_not_empty(cls, v):
-        if not v.strip():
-            raise ValueError('La categoría no puede estar vacía')
+    @validator('category_id')
+    def category_id_positive(cls, v):
+        if v is None or v <= 0:
+            raise ValueError('category_id debe ser un entero positivo')
         return v
 
 class FurnitureCreate(FurnitureBase):
@@ -86,7 +107,7 @@ class FurnitureUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     price: Optional[float] = Field(None, gt=0)
-    category: Optional[str] = None
+    category_id: Optional[int] = None
     img_base64: Optional[str] = None
     stock: Optional[int] = Field(None, ge=0)
     brand: Optional[str] = None
@@ -103,10 +124,10 @@ class FurnitureUpdate(BaseModel):
                 raise ValueError('El nombre no puede exceder 255 caracteres')
         return v
 
-    @validator('category')
-    def category_not_empty(cls, v):
-        if v is not None and not v.strip():
-            raise ValueError('La categoría no puede estar vacía')
+    @validator('category_id')
+    def category_id_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError('category_id debe ser un entero positivo')
         return v
 
 class PostBase(BaseModel):
@@ -166,6 +187,7 @@ class FurnitureOut(FurnitureBase):
     created_at: datetime
     updated_at: datetime
     posts: List[PostOut] = Field(default_factory=list)
+    category: Optional[CategoryOut]
 
     class Config:
         orm_mode = True

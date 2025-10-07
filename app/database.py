@@ -45,7 +45,11 @@ def create_database_if_not_exists():
 
 # Crear la base de datos si no existe
 try:
-    create_database_if_not_exists()
+    # Solo intentar crear DB automáticamente si no estamos en un entorno de pruebas
+    if settings.ENVIRONMENT != "test":
+        create_database_if_not_exists()
+    else:
+        logger.info("Entorno de pruebas detectado; se omite la creación automática de la base de datos.")
 except Exception as e:
     logger.error(f"No se pudo crear la base de datos: {e}")
     # Continuamos de todos modos, ya que podría ser un error temporal

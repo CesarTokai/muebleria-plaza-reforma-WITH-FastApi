@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from . import schemas, crud_furniture, crud_post, database, auth
+from . import schemas, crud_furniture, crud_post, database, auth, crud_category
 from typing import List, Optional
 
 router = APIRouter(prefix="/furniture", tags=["furniture"])
@@ -22,36 +22,40 @@ def create_furniture(furniture: schemas.FurnitureCreate, db: Session = Depends(g
 def create_furniture_batch(furniture_list: List[schemas.FurnitureCreate], db: Session = Depends(get_db), 
                           current_user: schemas.UserOut = Depends(auth.get_admin_user)):
     # Solo administradores pueden crear muebles en lote
-    created_furniture = []
-    for furniture in furniture_list:
-        created = crud_furniture.create_furniture(db, furniture)
-        created_furniture.append(created)
-    return created_furniture
+    # Usar operación transaccional para rollback completo si algo falla
+    return crud_furniture.create_furniture_batch(db, furniture_list)
 
 @router.get("/", response_model=List[schemas.FurnitureOut])
 def list_furniture(
-    skip: int = 0, 
-    limit: int = 100, 
-    category: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100,
+    category_id: Optional[int] = None,
     db: Session = Depends(get_db)
 ):
-    return crud_furniture.get_all_furniture(db, skip, limit, category)
+    return crud_furniture.get_all_furniture(db, skip, limit, category_id)
 
 @router.get("/search", response_model=List[schemas.FurnitureOut])
 def search_furniture(
     term: Optional[str] = None,
-    category: Optional[str] = None,
+    category_id: Optional[int] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
-    return crud_furniture.search_furniture(db, term, category, min_price, max_price, skip, limit)
+    return crud_furniture.search_furniture(db, term, category_id, min_price, max_price, skip, limit)
 
 @router.get("/categories", response_model=List[str])
 def get_categories(db: Session = Depends(get_db)):
-    return crud_furniture.get_furniture_categories(db)
+    # Devolver categorías desde la tabla `categories`
+    return [c.name for c in crud_category.get_all_categories(db)]
+
+@router.post("/categories", response_model=schemas.CategoryOut, status_code=status.HTTP_201_CREATED)
+def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db),
+                    current_user: schemas.UserOut = Depends(auth.get_admin_user)):
+    # Solo administradores pueden crear categorías
+    return crud_category.create_category(db, category)
 
 @router.get("/{furniture_id}", response_model=schemas.FurnitureOut)
 def get_furniture(furniture_id: int, db: Session = Depends(get_db)):

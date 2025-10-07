@@ -3,12 +3,14 @@ from __future__ import annotations
 import base64
 import binascii
 from typing import List, Optional, Tuple
+from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.exc import SQLAlchemyError
 
 from . import models, schemas
+from .crud_category import get_category_by_id
 
 
 # ---------- Utilidades internas ----------
@@ -71,16 +73,22 @@ def create_furniture(db: Session, furniture: schemas.FurnitureCreate) -> models.
     """
     Crea un mueble con validación de imagen, campos y duplicados razonables.
     """
-    # (Opcional) evita duplicados obvios por nombre+categoría
+    # Validar que la categoría exista
+    category = get_category_by_id(db, furniture.category_id)
+    if not category:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+
+    # Evitar duplicados por nombre+category_id
     exists = (
         db.query(models.Furniture)
-        .filter(models.Furniture.name == furniture.name, models.Furniture.category == furniture.category)
+        .filter(models.Furniture.name == furniture.name)
+        .filter(models.Furniture.category_id == furniture.category_id)
         .first()
     )
     if exists:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ya existe un mueble con nombre '{furniture.name}' en la categoría '{furniture.category}'."
+            detail=f"Ya existe un mueble con nombre '{furniture.name}' en la categoría '{category.name}'."
         )
 
     img_b64 = _validate_base64_image(furniture.img_base64)
@@ -88,8 +96,8 @@ def create_furniture(db: Session, furniture: schemas.FurnitureCreate) -> models.
     db_obj = models.Furniture(
         name=furniture.name.strip(),
         description=(furniture.description or "").strip() or None,
-        price=float(furniture.price),
-        category=furniture.category,
+        price=Decimal(str(furniture.price)),
+        category_id=furniture.category_id,
         img_base64=img_b64,
         stock=int(furniture.stock or 0),
         brand=(furniture.brand or "").strip() or None,
@@ -109,7 +117,7 @@ def get_furniture(db: Session, furniture_id: int) -> Optional[models.Furniture]:
     Obtiene un mueble por id (o None).
     """
     try:
-        return db.query(models.Furniture).filter(models.Furniture.id == furniture_id).first()
+        return db.query(models.Furniture).options(selectinload(models.Furniture.posts), selectinload(models.Furniture.category)).filter(models.Furniture.id == furniture_id).first()
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail="Error al obtener mueble") from e
 
@@ -118,16 +126,16 @@ def get_all_furniture(
         db: Session,
         skip: int = 0,
         limit: int = 100,
-        category: Optional[str] = None,
+        category_id: Optional[str] = None,
         order_by: str = "-created_at",  # "-campo" = desc, "campo" = asc
 ) -> List[models.Furniture]:
     """
     Lista muebles con filtro opcional por categoría y orden configurable.
     """
     try:
-        q = db.query(models.Furniture)
-        if category:
-            q = q.filter(models.Furniture.category == category)
+        q = db.query(models.Furniture).options(selectinload(models.Furniture.posts), selectinload(models.Furniture.category))
+        if category_id:
+            q = q.filter(models.Furniture.category_id == category_id)
 
         # ordenamiento sencillo
         mapping = {
@@ -156,31 +164,45 @@ def update_furniture(db: Session, furniture_id: int, furniture: schemas.Furnitur
     """
     db_obj = _ensure_found(get_furniture(db, furniture_id), "Mueble")
 
-    data = furniture.model_dump(exclude_unset=True)
+    # Edit: reemplazo de .model_dump por .dict para compatibilidad con Pydantic v1
+    # Use `.dict(exclude_unset=True)` which es compatible con Pydantic v1 (y evita errores
+    # si la instalación local no usa pydantic v2). Si tu proyecto usa pydantic v2 de forma
+    # intencional, cambia esto a `model_dump` y fija la dependencia en requirements.
+    data = furniture.dict(exclude_unset=True)
 
     if "img_base64" in data:
         data["img_base64"] = _validate_base64_image(data["img_base64"])
 
-    # (Opcional) evita duplicado nombre+categoría al cambiar esos campos
     new_name = data.get("name", db_obj.name)
-    new_cat = data.get("category", db_obj.category)
+    new_cat_id = data.get("category_id", db_obj.category_id)
+
+    # Si se cambia category_id, validar que exista
+    if data.get("category_id") is not None:
+        cat = get_category_by_id(db, data["category_id"])
+        if not cat:
+            raise HTTPException(status_code=404, detail="Categoría no encontrada")
+
     duplicate = (
         db.query(models.Furniture)
-        .filter(
-            models.Furniture.id != db_obj.id,
-            models.Furniture.name == new_name,
-            models.Furniture.category == new_cat,
-            )
+        .filter(models.Furniture.id != db_obj.id)
+        .filter(models.Furniture.name == new_name)
+        .filter(models.Furniture.category_id == new_cat_id)
         .first()
     )
     if duplicate:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Ya existe un mueble con nombre '{new_name}' en la categoría '{new_cat}'."
+            detail=f"Ya existe un mueble con nombre '{new_name}' en la categoría '{new_cat_id}'."
         )
 
     # aplica cambios
     for k, v in data.items():
+        if k == "price" and v is not None:
+            # Convertir a Decimal para Numeric DB
+            try:
+                v = Decimal(str(v))
+            except Exception:
+                raise HTTPException(status_code=400, detail="Precio inválido")
         if isinstance(v, str):
             v = v.strip()
             v = v or None  # normaliza strings vacíos a None
@@ -209,7 +231,7 @@ def delete_furniture(db: Session, furniture_id: int) -> bool:
 def search_furniture(
         db: Session,
         term: Optional[str] = None,
-        category: Optional[str] = None,
+        category_id: Optional[str] = None,
         min_price: Optional[float] = None,
         max_price: Optional[float] = None,
         skip: int = 0,
@@ -220,7 +242,7 @@ def search_furniture(
     Búsqueda flexible por término (nombre/descr), categoría y rango de precio.
     """
     try:
-        q = db.query(models.Furniture)
+        q = db.query(models.Furniture).options(selectinload(models.Furniture.posts), selectinload(models.Furniture.category))
 
         if term:
             like = f"%{term.strip()}%"
@@ -229,8 +251,8 @@ def search_furniture(
                 (models.Furniture.description.ilike(like))
             )
 
-        if category:
-            q = q.filter(models.Furniture.category == category)
+        if category_id:
+            q = q.filter(models.Furniture.category_id == category_id)
 
         if min_price is not None:
             q = q.filter(models.Furniture.price >= float(min_price))
@@ -262,7 +284,64 @@ def get_furniture_categories(db: Session) -> List[str]:
     Regresa la lista de categorías distintas presentes en la BD.
     """
     try:
-        rows = db.query(models.Furniture.category).distinct().all()
+        rows = db.query(models.Category.name).order_by(models.Category.name.asc()).all()
         return [r[0] for r in rows if r and r[0]]
     except SQLAlchemyError as e:
         raise HTTPException(status_code=500, detail="Error al obtener categorías") from e
+
+
+def create_furniture_batch(db: Session, furniture_list: List[schemas.FurnitureCreate]) -> List[models.Furniture]:
+    """Crea varios muebles en una sola transacción. Si alguno falla, se revierte todo."""
+    created: List[models.Furniture] = []
+    try:
+        # Validaciones y creación en memoria (evita commits parciales)
+        for furniture in furniture_list:
+            # validar categoria
+            category = get_category_by_id(db, furniture.category_id)
+            if not category:
+                raise HTTPException(status_code=404, detail=f"Categoría no encontrada para '{furniture.name}'")
+
+            exists = (
+                db.query(models.Furniture)
+                .filter(models.Furniture.name == furniture.name)
+                .filter(models.Furniture.category_id == furniture.category_id)
+                .first()
+            )
+            if exists:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Ya existe un mueble con nombre '{furniture.name}' en la categoría '{category.name}'."
+                )
+
+            img_b64 = _validate_base64_image(furniture.img_base64)
+
+            db_obj = models.Furniture(
+                name=furniture.name.strip(),
+                description=(furniture.description or "").strip() or None,
+                price=Decimal(str(furniture.price)),
+                category_id=furniture.category_id,
+                img_base64=img_b64,
+                stock=int(furniture.stock or 0),
+                brand=(furniture.brand or "").strip() or None,
+                color=(furniture.color or "").strip() or None,
+                material=(furniture.material or "").strip() or None,
+                dimensions=(furniture.dimensions or "").strip() or None,
+            )
+            db.add(db_obj)
+            created.append(db_obj)
+
+        # Commit único
+        _commit_or_rollback(db)
+        for o in created:
+            db.refresh(o)
+        return created
+    except HTTPException:
+        # preserve original HTTP exceptions
+        db.rollback()
+        raise
+    except SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error al crear muebles en lote") from e
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error inesperado al crear muebles en lote") from e

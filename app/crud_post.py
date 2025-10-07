@@ -118,3 +118,36 @@ def hard_delete_post(db: Session, post_id: int):
         db.rollback()
         logger.error(f"Error al eliminar permanentemente la publicación: {e}")
         raise HTTPException(status_code=500, detail="Error al eliminar permanentemente la publicación")
+
+
+def get_inactive_posts(db: Session, skip: int = 0, limit: int = 100) -> List[models.Post]:
+    """Lista publicaciones marcadas como inactivas (papelera). Solo para administración."""
+    try:
+        return (
+            db.query(models.Post)
+            .filter(models.Post.is_active == False)
+            .order_by(models.Post.publication_date.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+    except SQLAlchemyError as e:
+        logger.error(f"Error al listar publicaciones inactivas: {e}")
+        raise HTTPException(status_code=500, detail="Error al listar publicaciones inactivas")
+
+
+def restore_post(db: Session, post_id: int) -> models.Post:
+    """Restaura una publicación previamente eliminada (soft delete)."""
+    db_post = get_post(db, post_id)
+    if not db_post:
+        raise HTTPException(status_code=404, detail="Publicación no encontrada")
+
+    try:
+        db_post.is_active = True
+        db.commit()
+        db.refresh(db_post)
+        return db_post
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Error al restaurar publicación: {e}")
+        raise HTTPException(status_code=500, detail="Error al restaurar publicación")

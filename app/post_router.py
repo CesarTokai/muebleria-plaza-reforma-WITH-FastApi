@@ -52,3 +52,13 @@ def hard_delete_post(post_id: int, db: Session = Depends(get_db), current_user: 
     if not deleted:
         raise HTTPException(status_code=404, detail="Publicación no encontrada")
     return None
+
+@router.get("/inactive", response_model=List[schemas.PostOut])
+def list_inactive_posts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: dict = Depends(auth.get_admin_user)):
+    # Solo administradores pueden ver publicaciones inactivas
+    return crud_post.get_inactive_posts(db, skip, limit)
+
+@router.post("/{post_id}/restore", response_model=schemas.PostOut)
+def restore_post(post_id: int, db: Session = Depends(get_db), current_user: dict = Depends(auth.get_admin_user)):
+    # Solo administradores pueden restaurar publicaciones
+    return crud_post.restore_post(db, post_id)

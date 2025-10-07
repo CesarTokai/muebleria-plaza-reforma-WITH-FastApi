@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, Numeric, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .database import Base
 import datetime
@@ -15,13 +15,25 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
 
 
+class Category(Base):
+    __tablename__ = "categories"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False, index=True)
+    description = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # relación inversa
+    furniture = relationship("Furniture", back_populates="category")
+
+
 class Furniture(Base):
     __tablename__ = "furniture"
+    __table_args__ = (UniqueConstraint('name', 'category_id', name='uix_name_category'),)
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(String(1000), nullable=True)
-    price = Column(Float, nullable=False)  # o DECIMAL(10,2) si ya lo cambiaste
-    category = Column(String(100), nullable=False, index=True)
+    price = Column(Numeric(10, 2), nullable=False)
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False, index=True)
     img_base64 = Column(Text, nullable=True)
     stock = Column(Integer, default=0)
     brand = Column(String(100), nullable=True)
@@ -32,6 +44,7 @@ class Furniture(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
     # 👇 ESTA LÍNEA ES CLAVE
+    category = relationship("Category", back_populates="furniture")
     posts = relationship("Post", back_populates="furniture", cascade="all, delete-orphan")
 
 class Post(Base):
