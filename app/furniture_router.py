@@ -46,16 +46,46 @@ def search_furniture(
 ):
     return crud_furniture.search_furniture(db, term, category_id, min_price, max_price, skip, limit)
 
-@router.get("/categories", response_model=List[str])
+@router.get("/categories", response_model=List[schemas.CategoryOut])
 def get_categories(db: Session = Depends(get_db)):
-    # Devolver categorías desde la tabla `categories`
-    return [c.name for c in crud_category.get_all_categories(db)]
+    # Devolver categorías completas desde la tabla `categories`
+    return crud_category.get_all_categories(db)
 
 @router.post("/categories", response_model=schemas.CategoryOut, status_code=status.HTTP_201_CREATED)
 def create_category(category: schemas.CategoryCreate, db: Session = Depends(get_db),
                     current_user: schemas.UserOut = Depends(auth.get_admin_user)):
     # Solo administradores pueden crear categorías
     return crud_category.create_category(db, category)
+
+@router.get("/categories/{category_id}", response_model=schemas.CategoryOut)
+def get_category(category_id: int, db: Session = Depends(get_db)):
+    cat = crud_category.get_category_by_id(db, category_id)
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    return cat
+
+@router.put("/categories/{category_id}", response_model=schemas.CategoryOut)
+def update_category(
+    category_id: int,
+    category: schemas.CategoryUpdate,
+    db: Session = Depends(get_db),
+    current_user: schemas.UserOut = Depends(auth.get_admin_user)
+):
+    updated = crud_category.update_category(db, category_id, category)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    return updated
+
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_category(
+    category_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.UserOut = Depends(auth.get_admin_user)
+):
+    deleted = crud_category.delete_category(db, category_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada")
+    return None
 
 @router.get("/{furniture_id}", response_model=schemas.FurnitureOut)
 def get_furniture(furniture_id: int, db: Session = Depends(get_db)):

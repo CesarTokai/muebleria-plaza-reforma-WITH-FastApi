@@ -6,8 +6,9 @@ from typing import List, Optional, Tuple
 from decimal import Decimal
 
 from fastapi import HTTPException, status
+import logging
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
 from . import models, schemas
 from .crud_category import get_category_by_id
@@ -57,8 +58,31 @@ def _validate_base64_image(b64: Optional[str]) -> Optional[str]:
 def _commit_or_rollback(db: Session) -> None:
     try:
         db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        logging.getLogger(__name__).exception("Integrity error on DB commit")
+        # Determinar si es violación FK o unique
+        msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        if 'foreign key' in msg.lower() or 'cannot add or update a child row' in msg.lower():
+            raise HTTPException(status_code=400, detail="Violación de clave foránea o categoría inexistente") from e
+        if 'duplicate' in msg.lower() or 'unique' in msg.lower():
+            raise HTTPException(status_code=409, detail="Registro duplicado en la base de datos") from e
+        # fallback
+        raise HTTPException(status_code=400, detail="Error de integridad en la base de datos") from e
     except SQLAlchemyError as e:
         db.rollback()
+        logging.getLogger(__name__).exception("Database error on commit")
+        # Inspeccionar mensaje para errores comunes de esquema y devolver detalle útil
+        msg = ''
+        try:
+            msg = str(e.orig)
+        except Exception:
+            msg = str(e)
+        ml = msg.lower()
+        if 'unknown column' in ml or '1054' in ml or 'column not found' in ml or 'no such column' in ml:
+            # Mensaje orientativo, no exponer SQL completo
+            raise HTTPException(status_code=500, detail="Error de esquema en la base de datos: columna faltante o desalineada. Revisar migraciones y el esquema de la tabla.") from e
+        # Fallback genérico
         raise HTTPException(status_code=500, detail="Error de base de datos") from e
 
 def _ensure_found(obj, name: str = "Recurso"):
@@ -73,6 +97,19 @@ def create_furniture(db: Session, furniture: schemas.FurnitureCreate) -> models.
     """
     Crea un mueble con validación de imagen, campos y duplicados razonables.
     """
+    # Validaciones tempranas para dar retroalimentación clara (422) si falta algo
+    if not getattr(furniture, 'name', None) or not str(furniture.name).strip():
+        raise HTTPException(status_code=422, detail="El campo 'name' es obligatorio y no puede estar vacío")
+    if getattr(furniture, 'price', None) is None:
+        raise HTTPException(status_code=422, detail="El campo 'price' es obligatorio")
+    try:
+        if float(furniture.price) <= 0:
+            raise HTTPException(status_code=422, detail="El campo 'price' debe ser mayor que 0")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="El campo 'price' debe ser un número válido")
+    if getattr(furniture, 'category_id', None) is None:
+        raise HTTPException(status_code=422, detail="El campo 'category_id' es obligatorio")
+
     # Validar que la categoría exista
     category = get_category_by_id(db, furniture.category_id)
     if not category:
@@ -96,8 +133,11 @@ def create_furniture(db: Session, furniture: schemas.FurnitureCreate) -> models.
     db_obj = models.Furniture(
         name=furniture.name.strip(),
         description=(furniture.description or "").strip() or None,
-        price=Decimal(str(furniture.price)),
+        # Convertir y validar precio
+        price=(lambda v: (lambda x: x)(Decimal(str(v))) if v is not None else None)(furniture.price),
         category_id=furniture.category_id,
+        # Mantener compatibilidad con columna física antigua 'category' — nunca enviar NULL
+        category_name=(category.name if (category and getattr(category, 'name', None)) else ''),
         img_base64=img_b64,
         stock=int(furniture.stock or 0),
         brand=(furniture.brand or "").strip() or None,
@@ -320,6 +360,8 @@ def create_furniture_batch(db: Session, furniture_list: List[schemas.FurnitureCr
                 description=(furniture.description or "").strip() or None,
                 price=Decimal(str(furniture.price)),
                 category_id=furniture.category_id,
+                # Mantener compatibilidad con columna física antigua 'category'
+                category_name=(category.name if (category and getattr(category, 'name', None)) else ''),
                 img_base64=img_b64,
                 stock=int(furniture.stock or 0),
                 brand=(furniture.brand or "").strip() or None,

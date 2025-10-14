@@ -39,6 +39,7 @@ class UserOut(BaseModel):
 class CategoryBase(BaseModel):
     name: str
     description: Optional[str] = None
+    icon_base64: Optional[str] = None
 
     @validator('name')
     def name_not_empty(cls, v):
@@ -49,9 +50,20 @@ class CategoryBase(BaseModel):
 class CategoryCreate(CategoryBase):
     pass
 
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    icon_base64: Optional[str] = None
+
+    @validator('name')
+    def name_not_empty(cls, v):
+        if v is not None and not v.strip():
+            raise ValueError('El nombre de la categoría no puede estar vacío')
+        return v
+
 class CategoryOut(CategoryBase):
     id: int
-    created_at: datetime
+    created_at: Optional[datetime]
 
     class Config:
         orm_mode = True
