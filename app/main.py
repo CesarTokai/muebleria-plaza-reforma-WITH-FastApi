@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from . import models, schemas, crud, auth, database, email_utils
 from .furniture_router import router as furniture_router
 from .post_router import router as post_router
+from .images_router import router as images_router
 
 models.Base.metadata.create_all(bind=database.engine)
 app = FastAPI(title="Mueblería Plaza Reforma API", 
@@ -94,3 +95,4 @@ def read_root():
 # Incluir routers
 app.include_router(furniture_router)
 app.include_router(post_router)
+app.include_router(images_router)

@@ -63,7 +63,7 @@ class CategoryUpdate(BaseModel):
 
 class CategoryOut(CategoryBase):
     id: int
-    created_at: Optional[datetime]
+    created_at: Optional[datetime] = None
 
     class Config:
         orm_mode = True
@@ -91,7 +91,7 @@ class FurnitureBase(BaseModel):
     description: Optional[str] = None
     price: float = Field(..., gt=0)
     category_id: int
-    img_base64: Optional[str] = None
+    images: Optional[List[str]] = None  # nuevas múltiples imágenes (base64 or data URL)
     stock: Optional[int] = Field(0, ge=0)
     brand: Optional[str] = None
     color: Optional[str] = None
@@ -120,7 +120,7 @@ class FurnitureUpdate(BaseModel):
     description: Optional[str] = None
     price: Optional[float] = Field(None, gt=0)
     category_id: Optional[int] = None
-    img_base64: Optional[str] = None
+    images: Optional[List[str]] = None
     stock: Optional[int] = Field(None, ge=0)
     brand: Optional[str] = None
     color: Optional[str] = None
@@ -194,12 +194,22 @@ class PostOut(PostBase):
     class Config:
         orm_mode = True
 
+# Nuevo esquema para representar imágenes asociadas al mueble
+class FurnitureImageOut(BaseModel):
+    id: int
+    img_base64: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
 class FurnitureOut(FurnitureBase):
     id: int
     created_at: datetime
     updated_at: datetime
     posts: List[PostOut] = Field(default_factory=list)
     category: Optional[CategoryOut]
+    images: List[FurnitureImageOut] = Field(default_factory=list)
 
     class Config:
         orm_mode = True

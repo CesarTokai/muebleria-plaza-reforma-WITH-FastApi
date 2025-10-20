@@ -1,7 +1,9 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, Numeric, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, Text, Numeric, UniqueConstraint, LargeBinary
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from .database import Base
 import datetime
+import base64
 
 class User(Base):
     __tablename__ = "users"
@@ -20,7 +22,8 @@ class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True, nullable=False, index=True)
     description = Column(String(255), nullable=True)
-    icon_base64 = Column(Text, nullable=True)
+    # Usar MEDIUMTEXT para MySQL, Text como fallback para otros motores
+    icon_base64 = Column(MEDIUMTEXT().with_variant(Text, "sqlite"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     # relación inversa
@@ -37,7 +40,8 @@ class Furniture(Base):
     category_id = Column(Integer, ForeignKey('categories.id'), nullable=False, index=True)
     # Mapeo para compatibilidad: columna física 'category' (varchar) existente en la BD
     category_name = Column('category', String(100), nullable=True)
-    img_base64 = Column(Text, nullable=True)
+    # Usar MEDIUMTEXT para MySQL (~16MB), Text como fallback para SQLite en tests
+    img_base64 = Column(MEDIUMTEXT().with_variant(Text, "sqlite"), nullable=True)
     stock = Column(Integer, default=0)
     brand = Column(String(100), nullable=True)
     color = Column(String(50), nullable=True)
@@ -49,6 +53,9 @@ class Furniture(Base):
     # relación con categoría (objeto)
     category = relationship("Category", back_populates="furniture")
     posts = relationship("Post", back_populates="furniture", cascade="all, delete-orphan")
+
+    # nueva relación para múltiples imágenes
+    images = relationship("FurnitureImage", back_populates="furniture", cascade="all, delete-orphan", order_by="(FurnitureImage.position, FurnitureImage.id)")
 
 class Post(Base):
     __tablename__ = "posts"
@@ -64,3 +71,28 @@ class Post(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc))
     is_active = Column(Boolean, default=True)
+
+
+# Nuevo modelo para almacenar múltiples imágenes por mueble
+class FurnitureImage(Base):
+    __tablename__ = "furniture_images"
+    id = Column(Integer, primary_key=True, index=True)
+    furniture_id = Column(Integer, ForeignKey('furniture.id', ondelete='CASCADE'), nullable=False, index=True)
+    position = Column(Integer, nullable=False, default=0)
+    mime = Column(String(100), nullable=False)
+    # LONGBLOB en MySQL -> LargeBinary aquí
+    bytes = Column(LargeBinary, nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    sha256 = Column(LargeBinary(32), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc))
+
+    furniture = relationship("Furniture", back_populates="images")
+
+    @property
+    def img_base64(self) -> str:
+        """Propiedad de conveniencia para retornar el contenido como data URL base64 (usada por Pydantic ORM)."""
+        try:
+            payload = base64.b64encode(self.bytes).decode("ascii")
+            return f"data:{self.mime};base64,{payload}"
+        except Exception:
+            return ""
