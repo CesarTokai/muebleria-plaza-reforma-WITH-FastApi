@@ -98,21 +98,30 @@ def list_furniture(
     skip: int = 0,
     limit: int = 100,
     category_id: Optional[int] = None,
+    category_ids: Optional[List[int]] = Query(None),
     db: Session = Depends(get_db)
 ):
-    return crud_furniture.get_all_furniture(db, skip, limit, category_id)
+    """Listado de muebles. Puede filtrar por `category_id` (único) o `category_ids` (múltiples).
+    Ejemplos:
+      /furniture/?category_id=1
+      /furniture/?category_ids=1&category_ids=2
+    """
+    # Si se provee category_ids, pasarlo al CRUD; si no, pasar category_id como antes
+    return crud_furniture.get_all_furniture(db, skip, limit, category_id, category_ids)
 
 @router.get("/search", response_model=List[schemas.FurnitureOut])
 def search_furniture(
     term: Optional[str] = None,
     category_id: Optional[int] = None,
+    category_ids: Optional[List[int]] = Query(None),
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
-    return crud_furniture.search_furniture(db, term, category_id, min_price, max_price, skip, limit)
+    """Búsqueda flexible con término, categorías (single o multiple) y rango de precio."""
+    return crud_furniture.search_furniture(db, term, category_id, category_ids, min_price, max_price, skip, limit)
 
 @router.get("/categories", response_model=List[schemas.CategoryOut])
 def get_categories(db: Session = Depends(get_db)):
@@ -174,6 +183,30 @@ def update_furniture(
     if not updated:
         raise HTTPException(status_code=404, detail="Mueble no encontrado")
     return updated
+
+@router.delete("/{furniture_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_furniture(
+    furniture_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.UserOut = Depends(auth.get_admin_user)
+):
+    """Elimina un mueble por id (requiere administrador)."""
+    deleted = crud_furniture.delete_furniture(db, furniture_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Mueble no encontrado")
+    return None
+
+@router.delete("/{furniture_id}/", status_code=status.HTTP_204_NO_CONTENT)
+def delete_furniture_trailing(
+    furniture_id: int,
+    db: Session = Depends(get_db),
+    current_user: schemas.UserOut = Depends(auth.get_admin_user)
+):
+    """Alias con slash final para borrar un mueble (compatibilidad con clientes que agregan trailing slash)."""
+    deleted = crud_furniture.delete_furniture(db, furniture_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Mueble no encontrado")
+    return None
 
 # Endpoints nuevos para images
 @router.post("/{furniture_id}/images", response_model=List[schemas.FurnitureImageOut], status_code=status.HTTP_201_CREATED)

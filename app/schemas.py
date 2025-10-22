@@ -90,7 +90,6 @@ class FurnitureBase(BaseModel):
     name: str
     description: Optional[str] = None
     price: float = Field(..., gt=0)
-    category_id: int
     images: Optional[List[str]] = None  # nuevas múltiples imágenes (base64 or data URL)
     stock: Optional[int] = Field(0, ge=0)
     brand: Optional[str] = None
@@ -106,14 +105,13 @@ class FurnitureBase(BaseModel):
             raise ValueError('El nombre no puede exceder 255 caracteres')
         return v
 
+class FurnitureCreate(FurnitureBase):
+    category_id: int
     @validator('category_id')
     def category_id_positive(cls, v):
         if v is None or v <= 0:
             raise ValueError('category_id debe ser un entero positivo')
         return v
-
-class FurnitureCreate(FurnitureBase):
-    pass
 
 class FurnitureUpdate(BaseModel):
     name: Optional[str] = None
@@ -208,8 +206,9 @@ class FurnitureOut(FurnitureBase):
     created_at: datetime
     updated_at: datetime
     posts: List[PostOut] = Field(default_factory=list)
-    category: Optional[CategoryOut]
+    category: Optional[str]  # Solo el nombre de la categoría
     images: List[FurnitureImageOut] = Field(default_factory=list)
 
     class Config:
         orm_mode = True
+        fields = {"category": "category_name"}  # Mapea el campo category al atributo category_name del modelo

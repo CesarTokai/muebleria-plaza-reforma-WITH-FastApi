@@ -148,13 +148,18 @@ def get_all_furniture(
         skip: int = 0,
         limit: int = 100,
         category_id: Optional[str] = None,
+        category_ids: Optional[List[int]] = None,
         order_by: str = "-created_at",
 ) -> List[models.Furniture]:
     try:
         q = db.query(models.Furniture).options(
             selectinload(models.Furniture.images),
         )
-        if category_id:
+        # Filtrar por category_id (compatibilidad) o por category_ids (lista)
+        if category_ids:
+            # asegurarse que category_ids sea lista de ints
+            q = q.filter(models.Furniture.category_id.in_(category_ids))
+        elif category_id:
             q = q.filter(models.Furniture.category_id == category_id)
 
         mapping = {
@@ -255,6 +260,7 @@ def search_furniture(
         db: Session,
         term: Optional[str] = None,
         category_id: Optional[str] = None,
+        category_ids: Optional[List[int]] = None,
         min_price: Optional[float] = None,
         max_price: Optional[float] = None,
         skip: int = 0,
@@ -269,10 +275,15 @@ def search_furniture(
                 (models.Furniture.name.ilike(like)) |
                 (models.Furniture.description.ilike(like))
             )
-        if category_id:
+        # Filtrar por lista de categorías si se provee, si no usar category_id
+        if category_ids:
+            q = q.filter(models.Furniture.category_id.in_(category_ids))
+        elif category_id:
             q = q.filter(models.Furniture.category_id == category_id)
+
         if min_price is not None:
             q = q.filter(models.Furniture.price >= float(min_price))
+
         if max_price is not None:
             q = q.filter(models.Furniture.price <= float(max_price))
 
