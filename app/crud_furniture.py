@@ -237,6 +237,12 @@ def update_furniture(db: Session, furniture_id: int, furniture: schemas.Furnitur
                 v = Decimal(str(v))
             except Exception:
                 raise HTTPException(status_code=400, detail="Precio inválido")
+        if k == "category_id" and v is not None:
+            # Si se actualiza la categoría, también actualizar el nombre
+            cat = get_category_by_id(db, v)
+            if not cat:
+                raise HTTPException(status_code=404, detail="Categoría no encontrada")
+            db_obj.category_name = getattr(cat, "name", "") or ""
         if isinstance(v, str):
             v = v.strip() or None
         setattr(db_obj, k, v)

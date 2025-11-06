@@ -107,6 +107,7 @@ class FurnitureBase(BaseModel):
 
 class FurnitureCreate(FurnitureBase):
     category_id: int
+
     @validator('category_id')
     def category_id_positive(cls, v):
         if v is None or v <= 0:
