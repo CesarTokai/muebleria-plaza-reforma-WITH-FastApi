@@ -1,66 +1,61 @@
+# app/database.py
+import os, logging
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from .config import settings
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.engine import URL
 import mysql.connector
-from mysql.connector import Error
-import logging
 
-# Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Función para crear la base de datos si no existe
+def env(name, default=None):
+    return os.getenv(name, default)
+
+# Lee primero DB_*, si no existen, cae a MYSQL_*
+DB_HOST = env("DB_HOST") or env("MYSQL_HOST", "db")
+DB_PORT = int(env("DB_PORT") or env("MYSQL_PORT") or "3306")
+DB_NAME = env("DB_NAME") or env("MYSQL_DATABASE", "fastapi_auth_db")
+DB_USER = env("DB_USER") or env("MYSQL_USER", "root")
+DB_PASSWORD = env("DB_PASSWORD") or env("MYSQL_PASSWORD", "")
+ENVIRONMENT = env("ENVIRONMENT", "production")
+AUTO_CREATE_DB = env("AUTO_CREATE_DB", "0") == "1"
+
 def create_database_if_not_exists():
     try:
-        # Conexión a MySQL sin especificar base de datos
-        connection = mysql.connector.connect(
-            host=settings.MYSQL_HOST,
-            user=settings.MYSQL_USER,
-            password=settings.MYSQL_PASSWORD,
-            port=settings.MYSQL_PORT
+        conn = mysql.connector.connect(
+            host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD
         )
+        cur = conn.cursor()
+        cur.execute("SHOW DATABASES LIKE %s", (DB_NAME,))
+        if cur.fetchone() is None:
+            cur.execute(f"CREATE DATABASE `{DB_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci")
+            logger.info(f"Base de datos '{DB_NAME}' creada.")
+        else:
+            logger.info(f"La base '{DB_NAME}' ya existe.")
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"No se pudo crear la base: {e}")
 
-        if connection.is_connected():
-            cursor = connection.cursor()
+# Sólo intenta crear DB si lo pides y no estás en tests
+if AUTO_CREATE_DB and ENVIRONMENT != "test":
+    create_database_if_not_exists()
 
-            # Verificar si la base de datos existe
-            cursor.execute(f"SHOW DATABASES LIKE '{settings.MYSQL_DATABASE}'")
-            result = cursor.fetchone()
-
-            # Si no existe, crearla
-            if not result:
-                cursor.execute(f"CREATE DATABASE {settings.MYSQL_DATABASE}")
-                logger.info(f"Base de datos '{settings.MYSQL_DATABASE}' creada exitosamente.")
-            else:
-                logger.info(f"La base de datos '{settings.MYSQL_DATABASE}' ya existe.")
-
-            cursor.close()
-            connection.close()
-            logger.info("Conexión a MySQL cerrada")
-
-    except Error as e:
-        logger.error(f"Error al conectar a MySQL: {e}")
-        raise Exception(f"Error de conexión a MySQL: {e}")
-
-# Crear la base de datos si no existe
-try:
-    # Solo intentar crear DB automáticamente si no estamos en un entorno de pruebas
-    if settings.ENVIRONMENT != "test":
-        create_database_if_not_exists()
-    else:
-        logger.info("Entorno de pruebas detectado; se omite la creación automática de la base de datos.")
-except Exception as e:
-    logger.error(f"No se pudo crear la base de datos: {e}")
-    # Continuamos de todos modos, ya que podría ser un error temporal
-
-# URL de conexión para SQLAlchemy
-SQLALCHEMY_DATABASE_URL = (
-    f"mysql+mysqlconnector://{settings.MYSQL_USER}:{settings.MYSQL_PASSWORD}"
-    f"@{settings.MYSQL_HOST}:{settings.MYSQL_PORT}/{settings.MYSQL_DATABASE}"
+# Construye URL segura (soporta símbolos en password)
+connection_url = URL.create(
+    "mysql+mysqlconnector",
+    username=DB_USER,
+    password=DB_PASSWORD,
+    host=DB_HOST,
+    port=DB_PORT,
+    database=DB_NAME,
+    query={"charset": "utf8mb4"},
 )
 
-# Crear el motor de SQLAlchemy
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(
+    connection_url,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
